@@ -1,0 +1,97 @@
+#! /usr/bin/env python
+
+'''
+Export faces from iPhoto
+'''
+
+import sys, os
+import argparse
+import shutil
+import xml.etree.ElementTree as ET
+
+def sibling(tag, key):
+    '''
+    Return a key's sibling
+    '''
+
+    for i, child in enumerate(tag):
+        if child.tag == 'key' and child.text == key:
+            return tag[i + 1]
+
+def main():
+    '''
+    Main
+    '''
+
+    parser = argparse.ArgumentParser(description="Export faces from iPhoto")
+    parser.add_argument('iphotodir', type=os.path.expanduser,
+                        help="iPhoto dir (usually ~/Pictures/iPhoto Library)")
+    parser.add_argument('destdir', type=os.path.expanduser,
+                        help="destination directory")
+    args = parser.parse_args()
+
+    tree = ET.parse(args.iphotodir + '/AlbumData.xml')
+    root = tree.getroot()
+
+    # Find list of faces and image list
+    facelist = sibling(root[0], 'List of Faces')
+    imagelist = sibling(root[0], 'Master Image List')
+
+    # Organise faces and keys in list
+    faces = []
+    for tag in facelist:
+        if tag.tag == 'dict':
+            faces.append({
+                          'name':   sibling(tag, 'name').text,
+                          'key':    sibling(tag, 'key image').text,
+                          'index':  sibling(tag, 'key image face index').text,
+            })
+
+    # Organise all images
+    images = {}
+    for tag in imagelist:
+        if tag.tag == 'key':
+            key = tag.text
+        elif tag.tag == 'dict':
+            path = sibling(tag, 'OriginalPath')
+            if path is None:
+                path = sibling(tag, 'ImagePath')
+            if key in images:
+                print >> sys.stderr, "Already have this key: %s" % key
+            else:
+                images[key] = path.text.split('/', 6)[-1]
+        else:
+            print >> sys.stderr, "Unexpected tag"
+
+    # Map faces to images
+    for face in faces:
+        if face['key'] in images:
+            root, _ = os.path.splitext(images[face['key']])
+
+            try:
+                os.makedirs('%s/%s' % (args.destdir, os.path.dirname(root)))
+            except OSError:
+                pass
+                
+            src = '%s/Data.noindex/%s_face%s.jpg' % (args.iphotodir,
+                                                     root,
+                                                     face['index'])
+            dst = '%s/%s-%s.jpg' % (args.destdir,
+                                    root,
+                                    face['name'])
+            shutil.copy2(src, dst)
+
+            # print 'mv %s/Data.noindex/%s_face%s.jpg %s/%s-%s.jpg' % \
+            #     (
+            #      args.iphotodir,
+            #      root,
+            #      face['index'],
+            #      args.destdir,
+            #      root,
+            #      face['name'],
+            #     )
+        else:
+            print >> sys.stderr, "Couldn't find %s's face" % face['name']
+
+if __name__ == '__main__':
+    sys.exit(main())
