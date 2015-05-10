@@ -8,15 +8,7 @@ import sys, os
 import argparse
 import shutil
 import xml.etree.ElementTree as ET
-
-def sibling(tag, key):
-    '''
-    Return a key's sibling
-    '''
-
-    for i, child in enumerate(tag):
-        if child.tag == 'key' and child.text == key:
-            return tag[i + 1]
+import ephoto
 
 def main():
     '''
@@ -34,17 +26,17 @@ def main():
     root = tree.getroot()
 
     # Find list of faces and image list
-    facelist = sibling(root[0], 'List of Faces')
-    imagelist = sibling(root[0], 'Master Image List')
+    facelist = ephoto.sibling(root[0], 'List of Faces')
+    imagelist = ephoto.sibling(root[0], 'Master Image List')
 
     # Organise faces and keys in list
     faces = []
     for tag in facelist:
         if tag.tag == 'dict':
             faces.append({
-                          'name':   sibling(tag, 'name').text,
-                          'key':    sibling(tag, 'key image').text,
-                          'index':  sibling(tag, 'key image face index').text,
+                'name':   ephoto.sibling(tag, 'name').text,
+                'key':    ephoto.sibling(tag, 'key image').text,
+                'index':  ephoto.sibling(tag, 'key image face index').text,
             })
 
     # Organise all images
@@ -53,9 +45,9 @@ def main():
         if tag.tag == 'key':
             key = tag.text
         elif tag.tag == 'dict':
-            path = sibling(tag, 'OriginalPath')
+            path = ephoto.sibling(tag, 'OriginalPath')
             if path is None:
-                path = sibling(tag, 'ImagePath')
+                path = ephoto.sibling(tag, 'ImagePath')
             if key in images:
                 print >> sys.stderr, "Already have this key: %s" % key
             else:
