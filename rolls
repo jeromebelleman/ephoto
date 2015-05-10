@@ -1,0 +1,106 @@
+#! /usr/bin/env python
+
+'''
+Organise rolls in directories
+'''
+
+import sys, os
+import argparse
+import errno
+import pprint
+import xml.etree.ElementTree as ET
+import ephoto
+
+DESC = "Organise rolls in directories"
+
+def main():
+    '''
+    Main
+    '''
+
+    # Parse arguments
+    parser = argparse.ArgumentParser(description=DESC)
+    parser.add_argument('album', help="AlbumData.xml file",
+                        type=os.path.expanduser)
+    parser.add_argument('src', help="source photo directory",
+                        type=os.path.expanduser)
+    parser.add_argument('dst', help="destination photo directory",
+                        type=os.path.expanduser)
+    parser.add_argument('--dryrun', '-n', action='store_true', help="dry run")
+    args = parser.parse_args()
+
+    # Check that destination directory doesn't exist
+    try:
+        os.mkdir(args.dst)
+    except OSError:
+        print >> sys.stderr, \
+            "%s already exists and I'm no good with dups" % args.dst
+        return 1
+
+    # Open XML album
+    tree = ET.parse(args.album)
+    root = tree.getroot()
+
+    # Find roll and image lists
+    rolllist = ephoto.sibling(root[0], 'List of Rolls')
+    imagelist = ephoto.sibling(root[0], 'Master Image List')
+
+    # Load rolls
+    rolls = {}
+    for roll in rolllist:
+        # Make roll name filesystem-compatible 
+        rollname = ephoto.sibling(roll, 'RollName').text
+        rollname = rollname.replace('/', ',')
+
+        # Choose roll directory name
+        dst = '%s/%s' % (args.dst, rollname)
+        if os.path.exists(dst):
+            dst = '%s/%s-2' % (args.dst, rollname)
+
+        # Map photo to roll directory
+        for key in ephoto.sibling(roll, 'KeyList'):
+            if key.text in rolls:
+                print >> sys.stderr, "%s already belongs to %s" % (key, dst)
+            else:
+                rolls[key.text] = dst
+            
+    # Move photos
+    for tag in imagelist:
+        if tag.tag == 'key':
+            key = tag.text
+        elif tag.tag == 'dict':
+            # Resolve path
+
+            # ImagePath is the original if the image hasn't been modified.
+            # Otherwise, it's the modified version, and OriginalPath becomes
+            # the original.
+
+            # Is there and OriginalPath, i.e. has the picture been modified?
+            path = ephoto.sibling(tag, 'OriginalPath')
+            if path is None:
+                path = ephoto.sibling(tag, 'ImagePath')
+                path = path.text.split('/', 6)[-1]
+
+                # Make directories
+                try:
+                    os.makedirs('%s/%s' % \
+                        (rolls[key],
+                         path.rsplit('/', 1)[0]))
+                except OSError:
+                    pass
+
+                # Move file
+                dst = "%s/%s" % (rolls[key], path)
+                if os.path.exists(dst):
+                    print >> sys.stderr, "%s already exists" % dst
+                else:
+                    print "mv %s/%s %s" % (args.src, path, dst)
+            else:
+                pass
+        else:
+            print >> sys.stderr, "Unexpected tag"
+
+if __name__ == '__main__':
+    sys.exit(main())
+
+# vim: nowrap
