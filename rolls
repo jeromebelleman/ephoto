@@ -6,12 +6,44 @@ Organise rolls in directories
 
 import sys, os
 import argparse
-import errno
-import pprint
+import shutil
+import logging
 import xml.etree.ElementTree as ET
 import ephoto
 
 DESC = "Organise rolls in directories"
+
+def move(srcdir, rolls, key, path, modified):
+    '''
+    Make directories and move files
+    '''
+
+    path = path.text
+    src = path.split('/', 5)[-1]
+    img = src.split('/', 1)[-1]
+    dstdir, filename = img.rsplit('/', 1)
+
+    if modified:
+        dstdir = dstdir + '/Modified'
+
+    # Make directories
+    try:
+        logging.info('mkdir %s/%s', rolls[key], dstdir)
+        os.makedirs('%s/%s' % (rolls[key],
+                               dstdir))
+    except OSError:
+        pass
+
+    # Move file
+    dst = "%s/%s/%s" % (rolls[key], dstdir, filename)
+    if os.path.exists(dst):
+        logging.warning("%s already exists", dst)
+    else:
+        logging.info("mv %s/%s %s", srcdir, src, dst)
+        try:
+            shutil.move('%s/%s' % (srcdir, src), dst)
+        except IOError, exc:
+            logging.warning(exc)
 
 def main():
     '''
@@ -26,15 +58,18 @@ def main():
                         type=os.path.expanduser)
     parser.add_argument('dst', help="destination photo directory",
                         type=os.path.expanduser)
-    parser.add_argument('--dryrun', '-n', action='store_true', help="dry run")
     args = parser.parse_args()
+
+    logging.basicConfig(format='%(asctime)s %(levelname)s %(message)s',
+                        filename='log', level=logging.INFO)
+
+    logging.info("Starting run")
 
     # Check that destination directory doesn't exist
     try:
         os.mkdir(args.dst)
     except OSError:
-        print >> sys.stderr, \
-            "%s already exists and I'm no good with dups" % args.dst
+        logging.error("%s already exists and I'm no good with dups", args.dst)
         return 1
 
     # Open XML album
@@ -60,7 +95,7 @@ def main():
         # Map photo to roll directory
         for key in ephoto.sibling(roll, 'KeyList'):
             if key.text in rolls:
-                print >> sys.stderr, "%s already belongs to %s" % (key, dst)
+                logging.warning("%s already belongs to %s", key, dst)
             else:
                 rolls[key.text] = dst
             
@@ -76,29 +111,17 @@ def main():
             # the original.
 
             # Is there and OriginalPath, i.e. has the picture been modified?
-            path = ephoto.sibling(tag, 'OriginalPath')
-            if path is None:
-                path = ephoto.sibling(tag, 'ImagePath')
-                path = path.text.split('/', 6)[-1]
-
-                # Make directories
-                try:
-                    os.makedirs('%s/%s' % \
-                        (rolls[key],
-                         path.rsplit('/', 1)[0]))
-                except OSError:
-                    pass
-
-                # Move file
-                dst = "%s/%s" % (rolls[key], path)
-                if os.path.exists(dst):
-                    print >> sys.stderr, "%s already exists" % dst
-                else:
-                    print "mv %s/%s %s" % (args.src, path, dst)
+            origpath = ephoto.sibling(tag, 'OriginalPath')
+            imgpath = ephoto.sibling(tag, 'ImagePath')
+            if origpath is None:
+                move(args.src, rolls, key, imgpath, modified=False)
             else:
-                pass
+                move(args.src, rolls, key, origpath, modified=False)
+                move(args.src, rolls, key, imgpath, modified=True)
         else:
-            print >> sys.stderr, "Unexpected tag"
+            logging.warning("Unexpected tag")
+
+    logging.info("Ending run")
 
 if __name__ == '__main__':
     sys.exit(main())
